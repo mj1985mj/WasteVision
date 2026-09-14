@@ -128,7 +128,7 @@ app.use(express.json());
 app.get("/streak", (req, res) => {
   const datesParam = req.query.dates;
   if (!datesParam) {
-    return res.json({ streak: 0 });
+    return res.send("0");
   }
 
   const dates = datesParam.split(",");
@@ -152,7 +152,7 @@ app.get("/streak", (req, res) => {
   }
 
   console.log(`Streak calculated: ${streak} days from ${dates.length} dates`);
-  return res.json({ streak });
+  return res.send(String(streak));
 });
 
 app.get("/health", (_req, res) => {
