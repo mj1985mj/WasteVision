@@ -171,6 +171,34 @@ app.get("/streak", (req, res) => {
   return res.send(String(streak));
 });
 
+const TIPS = [
+  "Jedes recycelte Kilo Kunststoff spart im Schnitt bis zu 2 kg CO₂ gegenüber Neuproduktion.",
+  "Altglas nach Farben trennen – so kann es unendlich oft recycelt werden.",
+  "Elektrogeräte gehören nie in den Restmüll – sie enthalten wertvolle Rohstoffe wie Gold und Kupfer.",
+  "Biomüll wird zu Kompost oder Biogas – eine Bananenschale liefert Energie für 30 Minuten Licht.",
+  "Aluminium recyceln spart 95% der Energie gegenüber der Neuherstellung.",
+  "Papier kann bis zu 7 Mal recycelt werden, bevor die Fasern zu kurz werden.",
+  "Eine einzige Batterie kann bis zu 400 Liter Wasser verunreinigen – immer zur Sammelstelle bringen.",
+  "Tetra Paks gehören in die Gelbe Tonne – sie bestehen aus Karton, Kunststoff und Aluminium.",
+  "Alte Kleidung in gutem Zustand gehört in die Altkleidersammlung, nicht in den Restmüll.",
+  "Korken sammeln lohnt sich – Naturkork wird zu Dämmmaterial recycelt.",
+  "Medikamente niemals über die Toilette entsorgen – sie belasten das Grundwasser.",
+  "Kaffeekapseln aus Aluminium können recycelt werden – einfach in die Gelbe Tonne.",
+  "Ein Smartphone enthält über 30 verschiedene Metalle – Recycling lohnt sich enorm.",
+  "Pizzakartons mit Fettflecken gehören in den Restmüll, saubere Teile ins Altpapier.",
+  "Styropor-Verpackungen gehören in die Gelbe Tonne, Styropor-Dämmplatten zum Wertstoffhof.",
+  "Glasflaschen brauchen 4.000 Jahre zum Verrotten – aber nur Sekunden zum Recyceln.",
+  "Leere Spraydosen gehören in die Gelbe Tonne – aber nur wenn sie komplett leer sind.",
+  "Kronkorken sind aus Weißblech und gehören in die Gelbe Tonne.",
+  "Energiesparlampen enthalten Quecksilber – immer zur Schadstoffsammlung bringen.",
+  "Jede Tonne recyceltes Altpapier spart ca. 15 Bäume und 26.000 Liter Wasser.",
+];
+
+app.get("/tip", (_req, res) => {
+  const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
+  res.send(tip);
+});
+
 app.get("/health", (_req, res) => {
   console.log("Health check OK");
   res.json({ status: "ok" });
