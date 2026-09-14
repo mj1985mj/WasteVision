@@ -39,6 +39,8 @@ Analysiere das angehängte Bild und bestimme:
 - In welche Müllkategorie bzw. welchen Entsorgungsweg gehört der Gegenstand?
 - Wie sollte der Gegenstand korrekt entsorgt werden?
 - Gib zusätzlich einen kurzen und hilfreichen Tipp zur Entsorgung.
+- Vergib Eco-Punkte (1-10), je nachdem wie umweltfreundlich die korrekte Entsorgung ist. 10 = sehr umweltfreundlich (z.B. Recycling von Glas oder Metall), 1 = problematisch (z.B. Sondermüll).
+- Schätze die CO2-Einsparung in Gramm, die durch korrekte Entsorgung/Recycling im Vergleich zur Restmüllentsorgung entsteht. Gib eine realistische Schätzung basierend auf dem Material und der Größe des Gegenstands.
 
 Sehr wichtig:
 Die Regeln für Mülltrennung und Entsorgung können sich je nach Land unterscheiden. Verwende deshalb ausschließlich die Entsorgungsregeln des am Ende dieses Prompts angegebenen Landes.
@@ -57,7 +59,9 @@ Antworte ausschließlich als gültiges JSON in folgendem Format:
   "waste_category": "Müllkategorie bzw. Entsorgungsweg",
   "instruction": "Kurze Erklärung zur richtigen Entsorgung",
   "tip": "Kurzer praktischer Tipp",
-  "confidence": "high | medium | low"
+  "confidence": "high | medium | low",
+  "eco_points": 7,
+  "co2_saved_grams": 120
 }
 
 Verwende kurze, verständliche Formulierungen. Gib keinen Text außerhalb des JSON-Objekts aus.`;
@@ -103,6 +107,10 @@ app.post("/classify", upload.single("image"), async (req, res) => {
 
     try {
       const json = JSON.parse(text);
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, "0");
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      json.scan_date = `${dd}.${mm}.${now.getFullYear()}`;
       return res.json(json);
     } catch {
       console.log("  WARNING: Could not parse JSON, returning raw");
@@ -113,6 +121,37 @@ app.post("/classify", upload.single("image"), async (req, res) => {
     console.error("  Full error:", JSON.stringify(error, null, 2));
     return res.status(500).json({ error: "Classification failed", details: error.message });
   }
+});
+
+app.use(express.json());
+
+app.post("/streak", (req, res) => {
+  const { dates } = req.body;
+  if (!Array.isArray(dates) || dates.length === 0) {
+    return res.json({ streak: 0 });
+  }
+
+  const uniqueDates = new Set(dates);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let streak = 0;
+
+  for (let i = 0; i < 365; i++) {
+    const check = new Date(today);
+    check.setDate(check.getDate() - i);
+    const dd = String(check.getDate()).padStart(2, "0");
+    const mm = String(check.getMonth() + 1).padStart(2, "0");
+    const formatted = `${dd}.${mm}.${check.getFullYear()}`;
+
+    if (uniqueDates.has(formatted)) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  console.log(`Streak calculated: ${streak} days from ${dates.length} dates`);
+  return res.json({ streak });
 });
 
 app.get("/health", (_req, res) => {
