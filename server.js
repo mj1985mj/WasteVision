@@ -51,9 +51,12 @@ Bei Batterien, Elektrogeräten, Medikamenten, Chemikalien, Farben, gefährlichen
 
 Wenn du anhand des Bildes nicht eindeutig erkennen kannst, um welchen Gegenstand es sich handelt, stelle keine Behauptungen auf. Wähle die wahrscheinlichste Zuordnung und kennzeichne die Unsicherheit.
 
+Wenn auf dem Bild kein Abfall oder entsorgbarer Gegenstand zu sehen ist (z.B. eine Person, ein Tier, eine Landschaft, ein Gebäude, Essen auf einem Teller, etc.), setze "is_waste" auf false und gib eine kurze Erklärung in "object". Alle anderen Felder bleiben leer bzw. auf 0.
+
 Antworte ausschließlich als gültiges JSON in folgendem Format:
 
 {
+  "is_waste": true,
   "object": "Erkannter Gegenstand",
   "material": "Material des Gegenstands",
   "waste_category": "Müllkategorie bzw. Entsorgungsweg",
@@ -113,6 +116,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
       const scanDate = `${dd}.${mm}.${now.getFullYear()}`;
 
       const parts = [
+        json.is_waste === false ? "false" : "true",
         json.object || "",
         json.material || "",
         json.waste_category || "",
