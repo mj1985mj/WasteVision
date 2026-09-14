@@ -125,12 +125,13 @@ app.post("/classify", upload.single("image"), async (req, res) => {
 
 app.use(express.json());
 
-app.post("/streak", (req, res) => {
-  const { dates } = req.body;
-  if (!Array.isArray(dates) || dates.length === 0) {
+app.get("/streak", (req, res) => {
+  const datesParam = req.query.dates;
+  if (!datesParam) {
     return res.json({ streak: 0 });
   }
 
+  const dates = datesParam.split(",");
   const uniqueDates = new Set(dates);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
