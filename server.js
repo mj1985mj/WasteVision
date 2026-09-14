@@ -12,7 +12,7 @@ if (!GEMINI_API_KEY) {
 console.log("GEMINI_API_KEY loaded:", GEMINI_API_KEY.slice(0, 6) + "...");
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
 const app = express();
 app.use(cors());
