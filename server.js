@@ -89,23 +89,35 @@ app.post("/classify", upload.single("image"), async (req, res) => {
   console.log(`  Image: ${mimeType}, ${req.file.size} bytes, base64 length: ${base64Data.length}`);
   console.log("  Calling Gemini API...");
 
-  try {
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { inlineData: { mimeType, data: base64Data } },
-            { text: `${SYSTEM_PROMPT}\n\nStandort: ${place}` },
-          ],
+  const callGemini = async (attempt = 1) => {
+    try {
+      const result = await model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inlineData: { mimeType, data: base64Data } },
+              { text: `${SYSTEM_PROMPT}\n\nStandort: ${place}` },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
         },
-      ],
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    });
+      });
+      return result.response.text();
+    } catch (err) {
+      if (attempt < 3 && (err.message?.includes("503") || err.message?.includes("429") || err.message?.includes("high demand"))) {
+        console.log(`  Retry ${attempt}/2 after ${attempt * 2}s...`);
+        await new Promise(r => setTimeout(r, attempt * 2000));
+        return callGemini(attempt + 1);
+      }
+      throw err;
+    }
+  };
 
-    const text = result.response.text();
+  try {
+    const text = await callGemini();
     console.log("  Gemini response:", text.slice(0, 200));
 
     try {
