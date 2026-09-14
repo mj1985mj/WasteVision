@@ -43,7 +43,7 @@ Analysiere das angehängte Bild und bestimme:
 - Schätze die CO2-Einsparung in Gramm, die durch korrekte Entsorgung/Recycling im Vergleich zur Restmüllentsorgung entsteht. Gib eine realistische Schätzung basierend auf dem Material und der Größe des Gegenstands.
 
 Sehr wichtig:
-Die Regeln für Mülltrennung und Entsorgung können sich je nach Land unterscheiden. Verwende deshalb ausschließlich die Entsorgungsregeln des am Ende dieses Prompts angegebenen Landes.
+Die Regeln für Mülltrennung und Entsorgung können sich je nach Standort unterscheiden. Verwende deshalb ausschließlich die Entsorgungsregeln des am Ende dieses Prompts angegebenen Standorts (Stadt, Gemeinde oder Region in Österreich).
 
 Falls ein Gegenstand aus mehreren Materialien besteht, berücksichtige dies. Wenn Bestandteile getrennt entsorgt werden müssen, erkläre dies kurz.
 
@@ -81,11 +81,11 @@ app.post("/classify", upload.single("image"), async (req, res) => {
     return res.status(400).json({ error: "image file is required (field name: 'image')" });
   }
 
-  const country = req.query.country || req.body.country || "Österreich";
+  const place = req.query.place || req.query.country || "Österreich";
   const mimeType = req.file.mimetype;
   const base64Data = req.file.buffer.toString("base64");
 
-  console.log(`  Country: ${country}`);
+  console.log(`  Place: ${place}`);
   console.log(`  Image: ${mimeType}, ${req.file.size} bytes, base64 length: ${base64Data.length}`);
   console.log("  Calling Gemini API...");
 
@@ -96,7 +96,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
           role: "user",
           parts: [
             { inlineData: { mimeType, data: base64Data } },
-            { text: `${SYSTEM_PROMPT}\n\nLand: ${country}` },
+            { text: `${SYSTEM_PROMPT}\n\nStandort: ${place}` },
           ],
         },
       ],
