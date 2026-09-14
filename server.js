@@ -110,11 +110,23 @@ app.post("/classify", upload.single("image"), async (req, res) => {
       const now = new Date();
       const dd = String(now.getDate()).padStart(2, "0");
       const mm = String(now.getMonth() + 1).padStart(2, "0");
-      json.scan_date = `${dd}.${mm}.${now.getFullYear()}`;
-      return res.json(json);
+      const scanDate = `${dd}.${mm}.${now.getFullYear()}`;
+
+      const parts = [
+        json.object || "",
+        json.material || "",
+        json.waste_category || "",
+        json.instruction || "",
+        json.tip || "",
+        json.confidence || "",
+        json.eco_points || 0,
+        json.co2_saved_grams || 0,
+        scanDate,
+      ];
+      return res.send(parts.join("|||"));
     } catch {
       console.log("  WARNING: Could not parse JSON, returning raw");
-      return res.json({ raw: text });
+      return res.send(`error|||${text}`);
     }
   } catch (error) {
     console.error("  Gemini API error:", error.message);
