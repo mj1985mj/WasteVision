@@ -55,7 +55,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
     return res.status(400).json({ error: "image file is required (field name: 'image')" });
   }
 
-  const country = req.body.country || "Österreich";
+  const country = req.query.country || req.body.country || "Österreich";
   const mimeType = req.file.mimetype;
   const base64Data = req.file.buffer.toString("base64");
 
