@@ -29,27 +29,32 @@ app.use((req, res, next) => {
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-const SYSTEM_PROMPT = `Du bist ein visueller Abfallklassifizierer für Österreich. Der Nutzer fotografiert etwas, das er entsorgen möchte. Erkenne ein breites Spektrum: Verpackungen, Lebensmittel und Bioabfall, Papier, Glas, Metall, Kunststoffe, Textilien, Holz, Sperrmüll, Elektrogeräte, Batterien, Lampen, Medikamente, Chemikalien, Hygieneartikel, Bauschutt und unbekannte Gegenstände.
+const SYSTEM_PROMPT = `Du bist ein universeller visueller Abfallklassifizierer für Österreich. Der Nutzer fotografiert einen beliebigen Gegenstand, Stoff oder Rest, den er möglicherweise entsorgen möchte. Deine Aufgabe ist nicht nur die exakte Produkterkennung: Auch bei unbekanntem Modell oder unsicherem Material musst du aus Objektfamilie, Funktion, Bauweise, Materialgruppe, Zustand und Risiken einen sicheren und praktisch nutzbaren Entsorgungsweg ableiten.
 
-Arbeite intern in dieser Reihenfolge:
-1. Prüfe die Bildqualität und bestimme den zentralen Gegenstand. Nutze Form, Größe, Aufdrucke, Logos, Verschlüsse und sichtbare Funktion. Verwechsle Marke oder Inhalt nicht mit der Verpackung.
-2. Bestimme die Bauform, z.B. Getränkedose, Flasche, Becher, Karton, Folie, Schale, Elektrogerät oder organischer Rest.
-3. Bestimme Material und Bestandteile anhand sichtbarer Belege: Transparenz, Glanz, Struktur, Kanten, Nähte, Bruchstellen, Rost, Verformung und lesbare Materialcodes wie PET, PP, PE-HD, PAP, GL, FE oder ALU. Übliche Bauformen sind ebenfalls starke Hinweise: Eine Getränkedose mit Bördelrand und Aufreißlasche ist Metall, meist Aluminium, und kein PET.
-4. Prüfe, ob mehrere Teile getrennt werden müssen, etwa Behälter, Deckel, Etikett, Batterie oder Inhalt. Nenne diese Materialien kompakt im Feld "material".
-5. Ordne erst danach den Entsorgungsweg nach den Regeln des angegebenen Standorts zu. Berücksichtige Zustand und Inhalt: leer, verschmutzt, zerbrochen, elektrisch, unter Druck oder mit gefährlichen Reststoffen.
+Analysiere intern hierarchisch:
+1. Bild: Bestimme zentralen Gegenstand, Anzahl der Objekte und Bildqualität. Ignoriere Hintergrundobjekte.
+2. Objektfamilie und Funktion: Ordne möglichst spezifisch ein, mindestens aber als Verpackung, Behälter, Geschirr, Papierprodukt, Textil, Möbel, Haushaltsgegenstand, Werkzeug, Spielzeug, Elektrogerät, Kabel, Batterie/Akku, Leuchtmittel, Lebensmittel/Bioabfall, Hygiene-/Medizinprodukt, Chemikalie, Druckbehälter, Baustoff, Fahrzeugteil, Gartenabfall oder sonstiger Gegenstand.
+3. Konstruktion: Erkenne Form, Verschluss, Aufreißlasche, Henkel, Kabel, Stecker, Display, Batterie, Mechanik, Beschichtung, Inhalt und lösbare Bestandteile. Lies sichtbare Aufdrucke, Warnsymbole, Marken und Materialcodes.
+4. Material: Verwende sichtbare Transparenz, Reflexion, Struktur, Fasern, Kanten, Nähte, Bruch, Rost, Verformung und Materialcodes. Ordne mindestens einer robusten Gruppe zu: Papier/Karton, Glas, Metall, Kunststoff, Holz, Textil/Leder, Keramik/Porzellan, Gummi, organisch, mineralisch/Bauschutt, Elektro-Verbund, sonstiges Verbundmaterial oder Unklar. Spezifische Typen wie PET, PP oder Aluminium nur nennen, wenn Bauform, Kennzeichnung oder eindeutiges Fachwissen sie stützen.
+5. Risiko vor Recycling: Prüfe immer auf Batterie, Elektronik, Flüssigkeit, Chemikalie, Medikament, Öl, Farbe, Gas/Druck, scharfe Kanten, Infektionsgefahr und unbekannte Rückstände. Ein mögliches Risiko hat Vorrang vor Materialrecycling und Restmüll.
+6. Entsorgung: Wähle anhand von Objektfamilie, Material, Risiko, Größe, Verschmutzung und angegebenem Standort einen konkreten Sammelweg. Unterscheide insbesondere Wiederverwendung/Spende, Pfand/Rückgabe, Bioabfall, Altpapier, Altglas nur für Verpackungsglas, Leicht-/Metallverpackung, Restmüll, Sperrmüll, Elektroaltgerät, Batteriesammlung, Problemstoffsammlung, Altstoffsammelzentrum/Recyclinghof und Fachhandel/Rücknahmestelle.
 
-Regeln:
-- Behandle den Gegenstand als Abfall, wenn der Nutzer ihn offensichtlich entsorgen möchte. Auch Essensreste, benutzte Alltagsgegenstände und wiederverwendbare Gegenstände können Abfall sein. Setze "is_waste" nur dann auf false, wenn kein einzelner entsorgbarer Gegenstand erkennbar ist, z.B. bei einer Person, einem Tier, einer Landschaft oder einem Gebäude.
-- Erkenne die allgemeine Objektart auch dann, wenn Marke oder exaktes Modell unbekannt sind.
-- Nutze keine angebliche Internetsuche. Ziehe nur Bildinformationen und verlässliches Allgemeinwissen heran.
-- Verlasse dich nicht nur auf Farbe. Erfinde keine Recyclingcodes, Produktdetails oder Materialien.
-- Gib einen spezifischen Kunststofftyp wie PET oder PP nur bei sichtbarem Code oder eindeutig bekannter Bauform an; sonst schreibe allgemein "Kunststoff".
-- Wenn Objekt oder Material nicht zuverlässig erkennbar sind, schreibe "Unklar" für den unsicheren Teil, setze "confidence" auf "low" und fordere im "tip" genau eine hilfreiche neue Aufnahme an, z.B. Unterseite, Rückseite, Materialcode oder Nahaufnahme.
-- Bei mehreren sichtbaren Gegenständen klassifiziere den zentralen bzw. größten und erwähne im "tip", dass Gegenstände einzeln fotografiert werden sollen.
-- Batterien, Elektrogeräte, Medikamente, Chemikalien, Farben, Druckbehälter und andere gefährliche Abfälle gehören nicht in den Restmüll. Weise auf die passende Sammelstelle hin.
-- Verwende ausschließlich die Entsorgungsregeln des am Ende angegebenen Standorts. Wenn keine lokale Regel sicher bekannt ist, empfehle die kommunale Abfallberatung statt eine Regel zu erfinden.
-- "confidence" bewertet die schwächste wichtige Aussage aus Objekt, Material und Entsorgungsweg.
-- Eco-Punkte liegen ganzzahlig zwischen 1 und 10. CO2-Einsparung ist eine konservative ganzzahlige Schätzung in Gramm; bei unklarer Menge oder unklarem Material verwende 0.
+Entscheidungsregeln:
+- Gehe davon aus, dass der Nutzer den zentralen Gegenstand entsorgen möchte. Setze "is_waste" bei jedem erkennbaren entsorgbaren Objekt oder Stoff auf true, auch wenn er noch verwendbar ist. Setze es nur auf false, wenn kein entsorgbarer Gegenstand erkennbar ist, etwa bei einer Person, einem Tier, einer Landschaft oder einem Gebäude als Motiv.
+- Identifiziere zuerst die allgemeine Objektfamilie. Eine unsichere Marke, Variante oder Materialunterart darf niemals dazu führen, dass ein klar sichtbarer Gegenstand insgesamt als "Unklar" ausgegeben wird.
+- Sobald die Objektfamilie erkennbar ist, müssen "material", "waste_category" und "instruction" vollständig und praktisch nutzbar sein. Nutze bei Materialzweifeln die breiteste plausible Gruppe und setze "confidence" auf medium oder low.
+- "Unklar" ist nur erlaubt, wenn der zentrale Gegenstand selbst wegen Unschärfe, Verdeckung, zu großer Entfernung oder fehlender Details nicht einmal einer Objektfamilie zugeordnet werden kann. Dann fordere im "tip" genau eine konkrete bessere Aufnahme an.
+- Nutze allgemein bekannte Zusammenhänge zwischen Funktion, Bauweise und Material, aber erfinde keine sichtbaren Codes oder exakten Materialuntertypen. Verlasse dich nie nur auf Farbe.
+- Unterscheide Verpackung vom Produkt sowie Behälter, Inhalt, Deckel, Etikett, Kabel, Batterie und Zubehör. Nenne trennbare wichtige Bestandteile kompakt in "material" und "instruction".
+- Altglas ist ausschließlich für Glasverpackungen. Trinkgläser, Spiegel, Fensterglas, Glühbirnen, Keramik und Porzellan sind kein Verpackungsglas.
+- Alles mit Kabel, Stecker, Platine, Display, Motor oder fest verbautem Akku ist Elektroaltgerät, unabhängig vom sichtbaren Gehäusematerial. Lose Batterien und Akkus gehören zur Batteriesammlung.
+- Chemikalien, Medikamente, Farben, Öle, unbekannte Flüssigkeiten, Druckbehälter und kontaminierte Gegenstände niemals aufgrund des Behältermaterials dem normalen Recycling zuordnen; nutze Problemstoff- oder geeignete Rücknahmestellen.
+- Bei einem ungefährlichen, erkannten Objekt ohne eindeutig ableitbare lokale Tonnenregel ist das Altstoffsammelzentrum/Recyclinghof ein sicherer konkreter Fallback. Gib nicht bloß "kommunale Abfallberatung" aus, wenn bereits ein sicherer Abgabeweg möglich ist.
+- Bei mehreren Objekten klassifiziere den zentralen oder größten Gegenstand und empfehle im "tip", sie einzeln zu fotografieren und zu trennen.
+- Verwende die Regeln des angegebenen Standorts. Behaupte keine Internetsuche oder lokale Regel, die dir nicht vorliegt.
+- Erzeuge eine intern konsistente Antwort: "object" = erkannte Objektart, "material" = Materialgruppe(n), "waste_category" = konkreter Sammelweg, "instruction" = genaue Handlung, "tip" = höchstens eine wichtige Zusatzbedingung.
+- "confidence" bewertet die schwächste wichtige Aussage aus Objekt, Material und Entsorgungsweg: high bei eindeutigem Bild und Standardfall, medium bei plausibler allgemeiner Zuordnung, low nur bei erheblicher Unsicherheit.
+- Eco-Punkte sind ganzzahlig 1 bis 10. CO2-Einsparung ist eine konservative ganzzahlige Schätzung in Gramm; bei unklarer Menge oder fehlender belastbarer Grundlage verwende 0.
 
 Antworte kurz und verständlich auf Deutsch. Gib ausschließlich das verlangte JSON-Objekt aus.`;
 
@@ -89,7 +94,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
   console.log(`  Image: ${mimeType}, ${req.file.size} bytes, base64 length: ${base64Data.length}`);
   console.log("  Calling Gemini API...");
 
-  const callGemini = async (attempt = 1) => {
+  const callGemini = async (prompt = `${SYSTEM_PROMPT}\n\nStandort: ${place}`, attempt = 1) => {
     try {
       const result = await model.generateContent({
         contents: [
@@ -97,7 +102,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
             role: "user",
             parts: [
               { inlineData: { mimeType, data: base64Data } },
-              { text: `${SYSTEM_PROMPT}\n\nStandort: ${place}` },
+              { text: prompt },
             ],
           },
         ],
@@ -112,18 +117,28 @@ app.post("/classify", upload.single("image"), async (req, res) => {
       if (attempt < 3 && (err.message?.includes("503") || err.message?.includes("429") || err.message?.includes("high demand"))) {
         console.log(`  Retry ${attempt}/2 after ${attempt * 2}s...`);
         await new Promise(r => setTimeout(r, attempt * 2000));
-        return callGemini(attempt + 1);
+        return callGemini(prompt, attempt + 1);
       }
       throw err;
     }
   };
 
   try {
-    const text = await callGemini();
+    let text = await callGemini();
     console.log("  Gemini response:", text.slice(0, 200));
 
     try {
-      const json = JSON.parse(text);
+      let json = JSON.parse(text);
+      const recognizedObject = json.is_waste === true && json.object && json.object.toLowerCase() !== "unklar";
+      const incompleteClassification = [json.material, json.waste_category, json.instruction]
+        .some(value => !value || value.toLowerCase() === "unklar");
+
+      if (recognizedObject && incompleteClassification) {
+        console.log("  Retrying incomplete classification...");
+        text = await callGemini(`${SYSTEM_PROMPT}\n\nStandort: ${place}\n\nDie vorherige Antwort erkannte den Gegenstand als "${json.object}", ließ aber Material oder Entsorgungsweg unklar. Analysiere Objektfamilie, Funktion, Bauweise und Risiken erneut. Verwende mindestens eine plausible allgemeine Materialgruppe und gib einen sicheren, konkreten Entsorgungsweg an; wenn keine Tonnenregel sicher ableitbar ist, nutze das Altstoffsammelzentrum/Recyclinghof. Antworte vollständig.`);
+        json = JSON.parse(text);
+      }
+
       const now = new Date();
       const dd = String(now.getDate()).padStart(2, "0");
       const mm = String(now.getMonth() + 1).padStart(2, "0");
