@@ -29,52 +29,45 @@ app.use((req, res, next) => {
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-const SYSTEM_PROMPT = `Du bist ein intelligenter Assistent zur Erkennung und richtigen Entsorgung von Abfällen.
+const SYSTEM_PROMPT = `Du bist ein visueller Abfallklassifizierer für Österreich. Der Nutzer fotografiert etwas, das er entsorgen möchte. Erkenne ein breites Spektrum: Verpackungen, Lebensmittel und Bioabfall, Papier, Glas, Metall, Kunststoffe, Textilien, Holz, Sperrmüll, Elektrogeräte, Batterien, Lampen, Medikamente, Chemikalien, Hygieneartikel, Bauschutt und unbekannte Gegenstände.
 
-Der Nutzer stellt dir ein Bild eines Gegenstands oder Abfalls zur Verfügung.
+Arbeite intern in dieser Reihenfolge:
+1. Prüfe die Bildqualität und bestimme den zentralen Gegenstand. Nutze Form, Größe, Aufdrucke, Logos, Verschlüsse und sichtbare Funktion. Verwechsle Marke oder Inhalt nicht mit der Verpackung.
+2. Bestimme die Bauform, z.B. Getränkedose, Flasche, Becher, Karton, Folie, Schale, Elektrogerät oder organischer Rest.
+3. Bestimme Material und Bestandteile anhand sichtbarer Belege: Transparenz, Glanz, Struktur, Kanten, Nähte, Bruchstellen, Rost, Verformung und lesbare Materialcodes wie PET, PP, PE-HD, PAP, GL, FE oder ALU. Übliche Bauformen sind ebenfalls starke Hinweise: Eine Getränkedose mit Bördelrand und Aufreißlasche ist Metall, meist Aluminium, und kein PET.
+4. Prüfe, ob mehrere Teile getrennt werden müssen, etwa Behälter, Deckel, Etikett, Batterie oder Inhalt. Nenne diese Materialien kompakt im Feld "material".
+5. Ordne erst danach den Entsorgungsweg nach den Regeln des angegebenen Standorts zu. Berücksichtige Zustand und Inhalt: leer, verschmutzt, zerbrochen, elektrisch, unter Druck oder mit gefährlichen Reststoffen.
 
-Analysiere das angehängte Bild und bestimme:
-- Was ist auf dem Bild zu sehen?
-- Aus welchem Material besteht der Gegenstand hauptsächlich?
-- In welche Müllkategorie bzw. welchen Entsorgungsweg gehört der Gegenstand?
-- Wie sollte der Gegenstand korrekt entsorgt werden?
-- Gib zusätzlich einen kurzen und hilfreichen Tipp zur Entsorgung.
-- Vergib Eco-Punkte (1-10), je nachdem wie umweltfreundlich die korrekte Entsorgung ist. 10 = sehr umweltfreundlich (z.B. Recycling von Glas oder Metall), 1 = problematisch (z.B. Sondermüll).
-- Schätze die CO2-Einsparung in Gramm, die durch korrekte Entsorgung/Recycling im Vergleich zur Restmüllentsorgung entsteht. Gib eine realistische Schätzung basierend auf dem Material und der Größe des Gegenstands.
+Regeln:
+- Behandle den Gegenstand als Abfall, wenn der Nutzer ihn offensichtlich entsorgen möchte. Auch Essensreste, benutzte Alltagsgegenstände und wiederverwendbare Gegenstände können Abfall sein. Setze "is_waste" nur dann auf false, wenn kein einzelner entsorgbarer Gegenstand erkennbar ist, z.B. bei einer Person, einem Tier, einer Landschaft oder einem Gebäude.
+- Erkenne die allgemeine Objektart auch dann, wenn Marke oder exaktes Modell unbekannt sind.
+- Nutze keine angebliche Internetsuche. Ziehe nur Bildinformationen und verlässliches Allgemeinwissen heran.
+- Verlasse dich nicht nur auf Farbe. Erfinde keine Recyclingcodes, Produktdetails oder Materialien.
+- Gib einen spezifischen Kunststofftyp wie PET oder PP nur bei sichtbarem Code oder eindeutig bekannter Bauform an; sonst schreibe allgemein "Kunststoff".
+- Wenn Objekt oder Material nicht zuverlässig erkennbar sind, schreibe "Unklar" für den unsicheren Teil, setze "confidence" auf "low" und fordere im "tip" genau eine hilfreiche neue Aufnahme an, z.B. Unterseite, Rückseite, Materialcode oder Nahaufnahme.
+- Bei mehreren sichtbaren Gegenständen klassifiziere den zentralen bzw. größten und erwähne im "tip", dass Gegenstände einzeln fotografiert werden sollen.
+- Batterien, Elektrogeräte, Medikamente, Chemikalien, Farben, Druckbehälter und andere gefährliche Abfälle gehören nicht in den Restmüll. Weise auf die passende Sammelstelle hin.
+- Verwende ausschließlich die Entsorgungsregeln des am Ende angegebenen Standorts. Wenn keine lokale Regel sicher bekannt ist, empfehle die kommunale Abfallberatung statt eine Regel zu erfinden.
+- "confidence" bewertet die schwächste wichtige Aussage aus Objekt, Material und Entsorgungsweg.
+- Eco-Punkte liegen ganzzahlig zwischen 1 und 10. CO2-Einsparung ist eine konservative ganzzahlige Schätzung in Gramm; bei unklarer Menge oder unklarem Material verwende 0.
 
-Sehr wichtig:
-Die Regeln für Mülltrennung und Entsorgung können sich je nach Standort unterscheiden. Verwende deshalb ausschließlich die Entsorgungsregeln des am Ende dieses Prompts angegebenen Standorts (Stadt, Gemeinde oder Region in Österreich).
-Suche im Internet nach visuell ähnlichen Bildern und vergleiche sie mit dem hochgeladenen Bild, um den Gegenstand und sein Material möglichst präzise zu bestimmen. Nutze verlässliche Quellen und übernimm keine unsicheren Treffer ungeprüft.
+Antworte kurz und verständlich auf Deutsch. Gib ausschließlich das verlangte JSON-Objekt aus.`;
 
-Bestimme das Material besonders sorgfältig und schrittweise anhand sichtbarer Merkmale: Transparenz, Glanz, Oberflächenstruktur, Verformung, Kanten, Nähte, Bruchstellen, Rost, Materialstärke sowie Recycling- und Materialkennzeichnungen (z.B. PET, PP, PE-HD, PAP, GL, ALU). Lies erkennbare Beschriftungen und Logos. Unterscheide zwischen Inhalt, Verpackung, Etikett, Deckel und anderen Bestandteilen. Verlasse dich nicht allein auf Farbe oder Form, da ähnlich aussehende Gegenstände aus unterschiedlichen Materialien bestehen können.
-
-Beachte etablierte Verpackungsformen: Eine klassische Getränkedose mit zylindrischem Metallkörper, Bördelrand und Aufreißlasche besteht üblicherweise aus Aluminium oder Weißblech und niemals aus PET. Insbesondere Red-Bull-Dosen sind Aluminium-Getränkedosen. PET bezeichnet Kunststoffflaschen und darf nicht für eine Dose ausgegeben werden. Eine deutlich sichtbare abweichende Materialkennzeichnung hat Vorrang vor diesen typischen Zuordnungen.
-
-Nutze ähnliche Bilder nur als zusätzlichen Hinweis. Eine visuelle Ähnlichkeit oder ein erkanntes Produkt beweist das Material nicht. Gib nur dann ein bestimmtes Material an, wenn sichtbare Merkmale, eine lesbare Materialkennzeichnung oder eine verlässliche Produktspezifikation dies stützen. Kann das Material nicht zuverlässig erkannt werden, setze "material" auf "Unklar" und "confidence" auf "low" und nenne in "tip" kurz, welche Kennzeichnung oder zusätzliche Aufnahme (z.B. Unterseite, Nahaufnahme oder Verpackungsrückseite) benötigt wird. Erfinde keine Materialangabe.
-
-Falls ein Gegenstand aus mehreren Materialien besteht, berücksichtige dies. Wenn Bestandteile getrennt entsorgt werden müssen, erkläre dies kurz.
-
-Bei Batterien, Elektrogeräten, Medikamenten, Chemikalien, Farben, gefährlichen Stoffen oder anderen speziellen Abfällen sollst du besonders auf die korrekte Sonderentsorgung hinweisen.
-
-Wenn du anhand des Bildes nicht eindeutig erkennen kannst, um welchen Gegenstand es sich handelt, stelle keine Behauptungen auf. Wähle die wahrscheinlichste Zuordnung und kennzeichne die Unsicherheit.
-
-Wenn auf dem Bild kein Abfall oder entsorgbarer Gegenstand zu sehen ist (z.B. eine Person, ein Tier, eine Landschaft, ein Gebäude, Essen auf einem Teller, etc.), setze "is_waste" auf false und gib eine kurze Erklärung in "object". Alle anderen Felder bleiben leer bzw. auf 0.
-
-Antworte ausschließlich als gültiges JSON in folgendem Format:
-
-{
-  "is_waste": true,
-  "object": "Erkannter Gegenstand",
-  "material": "Hauptmaterial oder Unklar; bei Verbundgegenständen Bestandteile getrennt nennen",
-  "waste_category": "Müllkategorie bzw. Entsorgungsweg",
-  "instruction": "Kurze Erklärung zur richtigen Entsorgung",
-  "tip": "Kurzer praktischer Tipp",
-  "confidence": "high | medium | low",
-  "eco_points": 7,
-  "co2_saved_grams": 120
-}
-
-Verwende kurze, verständliche Formulierungen. Gib keinen Text außerhalb des JSON-Objekts aus.`;
+const RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    is_waste: { type: "boolean" },
+    object: { type: "string" },
+    material: { type: "string" },
+    waste_category: { type: "string" },
+    instruction: { type: "string" },
+    tip: { type: "string" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    eco_points: { type: "integer" },
+    co2_saved_grams: { type: "integer" },
+  },
+  required: ["is_waste", "object", "material", "waste_category", "instruction", "tip", "confidence", "eco_points", "co2_saved_grams"],
+};
 
 app.post("/classify", upload.single("image"), async (req, res) => {
   console.log("--- /classify request ---");
@@ -110,6 +103,8 @@ app.post("/classify", upload.single("image"), async (req, res) => {
         ],
         generationConfig: {
           responseMimeType: "application/json",
+          responseSchema: RESPONSE_SCHEMA,
+          temperature: 0.1,
         },
       });
       return result.response.text();
