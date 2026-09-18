@@ -2,10 +2,20 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import express from "express";
 import cors from "cors";
 import multer from "multer";
+import crypto from "node:crypto";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 if (!GEMINI_API_KEY) {
   console.error("GEMINI_API_KEY environment variable is required");
+  process.exit(1);
+}
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "images";
+const SUPABASE_STORAGE_FOLDER = (process.env.SUPABASE_STORAGE_FOLDER || "waste-scans").replace(/^\/+|\/+$/g, "");
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables are required");
   process.exit(1);
 }
 
@@ -135,6 +145,28 @@ app.post("/classify", upload.single("image"), async (req, res) => {
   console.log(`  Image: ${mimeType}, ${req.file.size} bytes, base64 length: ${base64Data.length}`);
   console.log("  Calling Gemini API...");
 
+  const uploadImage = async () => {
+    const extension = req.file.originalname.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || mimeType.split("/")[1] || "jpg";
+    const objectPath = `${SUPABASE_STORAGE_FOLDER}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodedPath}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        "Content-Type": mimeType,
+        "x-upsert": "false",
+      },
+      body: req.file.buffer,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Supabase upload failed (${response.status}): ${await response.text()}`);
+    }
+
+    return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodedPath}`;
+  };
+
   const callGemini = async (prompt = `${SYSTEM_PROMPT}\n\nStandort: ${place}`, attempt = 1) => {
     try {
       const result = await model.generateContent({
@@ -165,8 +197,10 @@ app.post("/classify", upload.single("image"), async (req, res) => {
   };
 
   try {
-    let text = await callGemini();
+    const [initialText, imageUrl] = await Promise.all([callGemini(), uploadImage()]);
+    let text = initialText;
     console.log("  Gemini response:", text.slice(0, 200));
+    console.log("  Supabase image:", imageUrl);
 
     try {
       let json = JSON.parse(text);
@@ -196,6 +230,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
         json.eco_points || 0,
         json.co2_saved_grams || 0,
         scanDate,
+        imageUrl,
       ];
       return res.send(parts.join("|||"));
     } catch {
@@ -203,9 +238,9 @@ app.post("/classify", upload.single("image"), async (req, res) => {
       return res.send(`error|||${text}`);
     }
   } catch (error) {
-    console.error("  Gemini API error:", error.message);
+    console.error("  Classification or upload error:", error.message);
     console.error("  Full error:", JSON.stringify(error, null, 2));
-    return res.status(500).json({ error: "Classification failed", details: error.message });
+    return res.status(500).json({ error: "Classification or image upload failed", details: error.message });
   }
 });
 
