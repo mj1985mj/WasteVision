@@ -44,6 +44,7 @@ Analysiere das angehängte Bild und bestimme:
 
 Sehr wichtig:
 Die Regeln für Mülltrennung und Entsorgung können sich je nach Standort unterscheiden. Verwende deshalb ausschließlich die Entsorgungsregeln des am Ende dieses Prompts angegebenen Standorts (Stadt, Gemeinde oder Region in Österreich).
+Suche im Internet nach visuell ähnlichen Bildern und vergleiche sie mit dem hochgeladenen Bild, um den Gegenstand und sein Material möglichst präzise zu bestimmen. Nutze verlässliche Quellen und übernimm keine unsicheren Treffer ungeprüft.
 
 Falls ein Gegenstand aus mehreren Materialien besteht, berücksichtige dies. Wenn Bestandteile getrennt entsorgt werden müssen, erkläre dies kurz.
 
