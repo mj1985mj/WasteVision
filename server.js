@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import crypto from "node:crypto";
+import sharp from "sharp";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 if (!GEMINI_API_KEY) {
@@ -34,11 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, callback) => callback(null, file.mimetype.startsWith("image/")),
-});
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 const SYSTEM_PROMPT = `Du bist ein universeller visueller Abfallklassifizierer für Österreich. Der Nutzer fotografiert einen beliebigen Gegenstand, Stoff oder Rest, den er entsorgen möchte. Er braucht eine konkrete, sichere Handlungsanweisung. Deine Aufgabe ist nicht nur die exakte Produkterkennung: Auch ohne Marke, Modell oder exakte Materialunterart musst du aus Objektfamilie, Funktion, Bauweise, Materialgruppe, Zustand, Inhalt, Größe und Risiken einen praktisch nutzbaren Entsorgungsweg ableiten.
 
@@ -140,11 +137,25 @@ app.post("/classify", upload.single("image"), async (req, res) => {
 
   const place = req.query.place || req.query.country || "Österreich";
   const mimeType = req.file.mimetype;
-  const base64Data = req.file.buffer.toString("base64");
 
   console.log(`  Place: ${place}`);
-  console.log(`  Image: ${mimeType}, ${req.file.size} bytes, base64 length: ${base64Data.length}`);
+  console.log(`  Image: ${mimeType}, ${req.file.size} bytes`);
   console.log("  Calling Gemini API...");
+
+  let geminiImage = req.file.buffer;
+  let geminiMimeType = mimeType;
+  try {
+    geminiImage = await sharp(req.file.buffer)
+      .rotate()
+      .resize({ width: 1280, height: 1280, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 80, mozjpeg: true })
+      .toBuffer();
+    geminiMimeType = "image/jpeg";
+    console.log(`  Gemini image: ${geminiImage.length} bytes (${Math.round((1 - geminiImage.length / req.file.size) * 100)}% smaller)`);
+  } catch (error) {
+    console.warn(`  Image compression skipped: ${error.message}`);
+  }
+  const base64Data = geminiImage.toString("base64");
 
   const uploadImage = async () => {
     const extension = req.file.originalname.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || mimeType.split("/")[1] || "jpg";
@@ -175,7 +186,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
           {
             role: "user",
             parts: [
-              { inlineData: { mimeType, data: base64Data } },
+              { inlineData: { mimeType: geminiMimeType, data: base64Data } },
               { text: `${SYSTEM_PROMPT}\n\nStandort: ${place}` },
             ],
           },
