@@ -19,10 +19,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-console.log("GEMINI_API_KEY loaded:", GEMINI_API_KEY.slice(0, 6) + "...");
-
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-2.5-flash-lite" });
 
 const app = express();
 app.use(cors());
@@ -30,20 +28,23 @@ app.use(cors());
 app.use((req, res, next) => {
   const start = Date.now();
   console.log(`--> ${req.method} ${req.url}`);
-  console.log(`    Headers: ${JSON.stringify(req.headers)}`);
   res.on("finish", () => {
     console.log(`<-- ${req.method} ${req.url} ${res.statusCode} (${Date.now() - start}ms)`);
   });
   next();
 });
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => callback(null, file.mimetype.startsWith("image/")),
+});
 
 const SYSTEM_PROMPT = `Du bist ein universeller visueller Abfallklassifizierer für Österreich. Der Nutzer fotografiert einen beliebigen Gegenstand, Stoff oder Rest, den er entsorgen möchte. Er braucht eine konkrete, sichere Handlungsanweisung. Deine Aufgabe ist nicht nur die exakte Produkterkennung: Auch ohne Marke, Modell oder exakte Materialunterart musst du aus Objektfamilie, Funktion, Bauweise, Materialgruppe, Zustand, Inhalt, Größe und Risiken einen praktisch nutzbaren Entsorgungsweg ableiten.
 
 GRUNDPRINZIP
 - Behandle den zentralen Gegenstand als zu entsorgenden Abfall. Setze "is_waste" bei jedem erkennbaren beweglichen Gegenstand, Material oder Stoff auf true, auch wenn er noch verwendbar, reparierbar oder spendbar wäre.
-- Setze "is_waste" nur auf false, wenn kein entsorgbarer Gegenstand oder Stoff das Bildmotiv ist, etwa bei einer Person, einem Tier, einer Landschaft, einem Gebäude oder einer rein digitalen Anzeige.
+- Setze "is_waste" auf false, wenn kein entsorgbarer Gegenstand oder Stoff das Bildmotiv ist oder wenn du nicht sicher genug bist, dass das zentrale Bildmotiv Abfall ist. Insbesondere muss "is_waste" false sein, wenn "object" = "Unklar" ist.
 - Eine unbekannte Marke, Variante oder Materialunterart bedeutet nicht, dass das Objekt unbekannt ist. Nenne mindestens die erkennbare Objektfamilie und eine breite Materialgruppe.
 - Liefere für jeden erkannten Abfall eine vollständige Entscheidung. "Unklar" in allen Feldern ist verboten, sobald du eine Objektart erkannt hast.
 
@@ -71,7 +72,7 @@ INTERNE ANALYSE - IN DIESER REIHENFOLGE
 UNIVERSELLE ENTSCHEIDUNGSREGELN
 - Erkanntes Objekt, unsicheres Material: Nutze die breiteste plausible Materialgruppe und einen sicheren objektbasierten Sammelweg. Setze "confidence" auf medium oder low, aber lasse keine Pflichtfelder leer.
 - Unbekanntes Objekt, erkennbares Material: Beschreibe es funktional, z.B. "unbekanntes Kunststoffteil" oder "kleines Metallbauteil", und entscheide nach Material, Größe und Risiko.
-- Völlig unkenntliches Bild: Nur dann darf "object" = "Unklar" sein. Setze "material" = "Unklar", "confidence" = "low", verwende als sicheren "waste_category" das Altstoffsammelzentrum/Recyclinghof und fordere genau eine konkrete bessere Aufnahme an.
+- Völlig unkenntliches Bild: Nur dann darf "object" = "Unklar" sein. Setze "is_waste" = false, "material" = "Unklar", "waste_category" = "Unklar", "instruction" auf die Aufforderung zu einer besseren Aufnahme, "confidence" = "low", "eco_points" = 1 und "co2_saved_grams" = 0.
 - Sicherer Fallback: Wenn der Gegenstand ungefährlich und erkennbar ist, aber keine lokale Tonnenregel sicher ableitbar ist, empfehle Altstoffsammelzentrum/Recyclinghof. Gib nicht nur "Abfallberatung kontaktieren" aus.
 - Wiederverwendung ist ein Tipp, kein Ersatz für den Entsorgungsweg. Nenne trotzdem, wohin der Gegenstand kommt, falls Wiederverwendung nicht möglich ist.
 - Pfand hat Vorrang, wenn ein Pfandzeichen sichtbar oder die Pfandverpackung eindeutig ist.
@@ -167,7 +168,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
     return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodedPath}`;
   };
 
-  const callGemini = async (prompt = `${SYSTEM_PROMPT}\n\nStandort: ${place}`, attempt = 1) => {
+  const callGemini = async (attempt = 1) => {
     try {
       const result = await model.generateContent({
         contents: [
@@ -175,7 +176,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
             role: "user",
             parts: [
               { inlineData: { mimeType, data: base64Data } },
-              { text: prompt },
+              { text: `${SYSTEM_PROMPT}\n\nStandort: ${place}` },
             ],
           },
         ],
@@ -183,6 +184,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
           responseMimeType: "application/json",
           responseSchema: RESPONSE_SCHEMA,
           temperature: 0.1,
+          maxOutputTokens: 500,
         },
       });
       return result.response.text();
@@ -190,7 +192,7 @@ app.post("/classify", upload.single("image"), async (req, res) => {
       if (attempt < 3 && (err.message?.includes("503") || err.message?.includes("429") || err.message?.includes("high demand"))) {
         console.log(`  Retry ${attempt}/2 after ${attempt * 2}s...`);
         await new Promise(r => setTimeout(r, attempt * 2000));
-        return callGemini(prompt, attempt + 1);
+        return callGemini(attempt + 1);
       }
       throw err;
     }
@@ -203,15 +205,66 @@ app.post("/classify", upload.single("image"), async (req, res) => {
     console.log("  Supabase image:", imageUrl);
 
     try {
-      let json = JSON.parse(text);
-      const recognizedObject = json.is_waste === true && json.object && json.object.toLowerCase() !== "unklar";
+      const json = JSON.parse(text);
+      const cleanText = (value, fallback = "") => {
+        const cleaned = typeof value === "string" ? value.replaceAll("|||", " ").replace(/\s+/g, " ").trim() : "";
+        return cleaned || fallback;
+      };
+      const clampInteger = (value, min, max, fallback) => {
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback;
+      };
+
+      json.object = cleanText(json.object, "Unklar");
+      json.material = cleanText(json.material, "Unklar");
+      json.waste_category = cleanText(json.waste_category, "Unklar");
+      json.instruction = cleanText(json.instruction);
+      json.tip = cleanText(json.tip);
+      json.confidence = ["high", "medium", "low"].includes(json.confidence) ? json.confidence : "low";
+      json.eco_points = clampInteger(json.eco_points, 1, 10, 1);
+      json.co2_saved_grams = clampInteger(json.co2_saved_grams, 0, 100000, 0);
+
+      const unknownObject = json.object.toLowerCase() === "unklar";
+      json.is_waste = json.is_waste === true && !unknownObject;
+
+      if (!json.is_waste) {
+        json.confidence = "low";
+        json.eco_points = 1;
+        json.co2_saved_grams = 0;
+        if (unknownObject) {
+          json.material = "Unklar";
+          json.waste_category = "Unklar";
+          json.instruction = "Bitte fotografiere den Gegenstand einzeln, scharf und vollständig bei gutem Licht.";
+          json.tip = "Etikett, Anschlüsse oder Gefahrensymbole sollten sichtbar sein.";
+        }
+      }
+
+      const recognizedObject = json.is_waste;
       const incompleteClassification = [json.material, json.waste_category, json.instruction]
         .some(value => !value || value.toLowerCase() === "unklar");
 
       if (recognizedObject && incompleteClassification) {
-        console.log("  Retrying incomplete classification...");
-        text = await callGemini(`${SYSTEM_PROMPT}\n\nStandort: ${place}\n\nDie vorherige Antwort erkannte den Gegenstand als "${json.object}", ließ aber Material oder Entsorgungsweg unklar. Analysiere Objektfamilie, Funktion, Bauweise und Risiken erneut. Verwende mindestens eine plausible allgemeine Materialgruppe und gib einen sicheren, konkreten Entsorgungsweg an; wenn keine Tonnenregel sicher ableitbar ist, nutze das Altstoffsammelzentrum/Recyclinghof. Antworte vollständig.`);
-        json = JSON.parse(text);
+        console.log("  Completing uncertain classification without another model call...");
+        if (!json.material || json.material.toLowerCase() === "unklar") {
+          json.material = "Nicht sicher bestimmbar";
+        }
+        if (!json.waste_category || json.waste_category.toLowerCase() === "unklar") {
+          json.waste_category = "Altstoffsammelzentrum/Recyclinghof";
+        }
+        if (!json.instruction || json.instruction.toLowerCase() === "unklar") {
+          json.instruction = `Den Gegenstand nicht zerlegen und zum Altstoffsammelzentrum/Recyclinghof in ${place} bringen.`;
+        }
+        json.confidence = "low";
+      }
+
+      const hazardousObject = /batter|akku|elektro|kabel|stecker|platine|display|lampe|leuchtmittel|medikament|nadel|chemikal|lack|farbe|kleber|öl|spray|gaskartusche|feuerlöscher|druckbehälter/i
+        .test(`${json.object} ${json.material}`);
+      const unsafeCategory = /restmüll|altpapier|altglas|weißglas|buntglas|gelbe tonne|gelber sack|bioabfall/i.test(json.waste_category);
+      if (recognizedObject && hazardousObject && unsafeCategory) {
+        json.waste_category = "Altstoffsammelzentrum/Recyclinghof";
+        json.instruction = `Nicht in den Hausmüll geben; den Gegenstand getrennt zum Altstoffsammelzentrum/Recyclinghof in ${place} bringen.`;
+        json.tip = "Nicht öffnen, beschädigen, ausleeren oder mit anderen Stoffen mischen.";
+        json.confidence = "low";
       }
 
       const now = new Date();
@@ -227,8 +280,8 @@ app.post("/classify", upload.single("image"), async (req, res) => {
         json.instruction || "",
         json.tip || "",
         json.confidence || "",
-        json.eco_points || 0,
-        json.co2_saved_grams || 0,
+        json.eco_points,
+        json.co2_saved_grams,
         scanDate,
         imageUrl,
       ];
