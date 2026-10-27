@@ -15,8 +15,13 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "images";
 const SUPABASE_STORAGE_FOLDER = (process.env.SUPABASE_STORAGE_FOLDER || "waste-scans").replace(/^\/+|\/+$/g, "");
+const SUPABASE_SIGNED_URL_TTL = Number.parseInt(process.env.SUPABASE_SIGNED_URL_TTL || "604800", 10);
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables are required");
+  process.exit(1);
+}
+if (!Number.isInteger(SUPABASE_SIGNED_URL_TTL) || SUPABASE_SIGNED_URL_TTL <= 0) {
+  console.error("SUPABASE_SIGNED_URL_TTL must be a positive number of seconds");
   process.exit(1);
 }
 
@@ -176,7 +181,27 @@ app.post("/classify", upload.single("image"), async (req, res) => {
       throw new Error(`Supabase upload failed (${response.status}): ${await response.text()}`);
     }
 
-    return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodedPath}`;
+    const signResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodedPath}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ expiresIn: SUPABASE_SIGNED_URL_TTL }),
+    });
+
+    if (!signResponse.ok) {
+      throw new Error(`Supabase signed URL creation failed (${signResponse.status}): ${await signResponse.text()}`);
+    }
+
+    const { signedURL, signedUrl } = await signResponse.json();
+    const signedPath = signedURL || signedUrl;
+    if (!signedPath) {
+      throw new Error("Supabase signed URL response did not include a URL");
+    }
+
+    return new URL(signedPath, SUPABASE_URL).toString();
   };
 
   const callGemini = async (attempt = 1) => {
